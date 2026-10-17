@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Screenshot Beautifier — Frame your screenshots</title>
+<meta name="description" content="Wrap a screenshot in a gradient backdrop, device frame and soft shadow. 100% client-side, no upload, no backend." />
+<meta name="color-scheme" content="light" />
+<style>
+/* ============================================================
+   Soft Neubrutalist · Hand-drawn Ink design system
+   Canvas  #F5F5F0   Card #FFFFFF   Accent #F2D06B   Ink #000
+   ============================================================ */
+:root{
+  --canvas:#F5F5F0;
+  --card:#FFFFFF;
+  --accent:#F2D06B;
+  --ink:#000000;
+  --ink-60:rgba(0,0,0,.60);
+  --ink-40:rgba(0,0,0,.40);
+  --ink-12:rgba(0,0,0,.12);
+  --r-card:20px;
+  --r-organic:24px 18px 22px 16px / 18px 24px 16px 22px;
+  --hard:3px 3px 0 0 var(--ink);
+  --hard-lg:5px 5px 0 0 var(--ink);
+  --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--ui);
+  color:var(--ink);
+  background-color:var(--canvas);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(0,0,0,.055) 1px, transparent 0);
+  background-size:22px 22px;
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+/* faint ink wash in the corners */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(60rem 40rem at 8% -10%, rgba(242,208,107,.34), transparent 60%),
+    radial-gradient(50rem 38rem at 105% 108%, rgba(123,92,255,.16), transparent 62%);
+}
+h1,h2,h3{margin:0;font-weight:900;letter-spacing:-.025em;line-height:1.05}
+p{margin:0}
+button{font-family:inherit}
+
+/* ---------- primitives ---------- */
+.card{
+  background:var(--card);
+  border:2px solid var(--ink);
+  border-radius:var(--r-organic);
+  box-shadow:var(--hard);
+}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;justify-content:center;
+  border:2px solid var(--ink);
+  border-radius:9999px;
+  background:var(--card);
+  color:var(--ink);
+  font-weight:800;
+  font-size:14px;
+  letter-spacing:-.01em;
+  padding:11px 18px;
+  cursor:pointer;
+  box-shadow:var(--hard);
+  transition:transform .13s cubic-bezier(.2,.8,.3,1), box-shadow .13s cubic-bezier(.2,.8,.3,1), background .15s;
+  white-space:nowrap;
+  user-select:none;
+}
+.btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 0 var(--ink)}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 0 var(--ink)}
+.btn:focus-visible{outline:3px solid #7B5CFF;outline-offset:3px}
+.btn-primary{background:var(--accent)}
+.btn-sm{padding:8px 14px;font-size:13px;box-shadow:2px 2px 0 0 var(--ink)}
+.btn-sm:hover{box-shadow:3px 3px 0 0 var(--ink)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;transform:none;box-shadow:var(--hard)}
+
+.eyebrow{
+  font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-60);display:flex;align-items:center;gap:8px;margin-bottom:12px;
+}
+.eyebrow::after{content:"";flex:1;height:2px;background:var(--ink);opacity:.16;border-radius:2px}
+
+/* ---------- layout ---------- */
+.wrap{position:relative;z-index:1;max-width:1440px;margin:0 auto;padding:20px 20px 64px}
+
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  flex-wrap:wrap;margin-bottom:20px;
+}
+.brand{
+  display:flex;align-items:center;gap:14px;padding:12px 20px 12px 14px;
+  transform:rotate(-.35deg);
+}
+.brand .mark{
+  width:44px;height:44px;flex:0 0 44px;border:2px solid var(--ink);border-radius:14px;
+  background:var(--accent);display:grid;place-items:center;box-shadow:2px 2px 0 0 var(--ink);
+}
+.brand h1{font-size:22px}
+.brand p{font-size:12.5px;color:var(--ink-60);font-weight:600;margin-top:3px}
+.topActions{display:flex;gap:10px;flex-wrap:wrap}
+
+main{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:20px;align-items:start}
+
+/* Stacked layout for narrow screens. A landscape phone (short viewport) keeps the
+   side-by-side arrangement instead — it has the width, and no vertical room to pin. */
+@media (max-width:1080px) and (min-height:480px){
+  main{grid-template-columns:1fr}
+  .panel{order:2}
+}
+@media (max-width:1080px) and (max-height:479px){
+  main{grid-template-columns:minmax(0,1fr) 300px}
+  .panel{order:0}
+}
+
+/* On narrow screens the panel stacks below a very tall stage, so scrolling down to the
+   controls would hide the preview you're editing. Pin a compact preview to the top and
+   let the panel scroll in its own box beneath it — the preview never leaves the screen
+   and no control is ever covered. */
+@media (max-width:1080px) and (min-height:480px){
+  main.pinning{
+    display:flex;flex-direction:column;
+    /* Filled in by JS as --pin-h so the layout adapts to the real header height on any device. */
+    height:calc(100vh - var(--pin-top, 168px) - 20px);
+    height:calc(100dvh - var(--pin-top, 168px) - 20px);
+    gap:10px;
+  }
+  main.pinning .stage{
+    position:relative;z-index:30;
+    padding:8px 10px 10px;border-radius:16px;
+    box-shadow:0 5px 0 0 var(--ink);
+    flex:0 0 auto;
+  }
+  main.pinning .stageInner{
+    max-height:26vh;overflow:hidden;
+    border-style:solid;border-radius:12px;
+  }
+  main.pinning .stageInner canvas{max-height:calc(26vh - 26px) !important}
+  /* very short phones: give the controls more room */
+  @media (max-height:700px){
+    main.pinning .stageInner{max-height:22vh}
+    main.pinning .stageInner canvas{max-height:calc(22vh - 26px) !important}
+  }
+  main.pinning .stage::after{display:none}
+  main.pinning .stageFoot{margin-top:8px;gap:8px}
+  main.pinning .stageFoot .meta{font-size:11px}
+  main.pinning .stageFoot .footActions .btn-sm{padding:6px 11px;font-size:12px}
+  /* the controls become the scrolling area */
+  main.pinning .panel{
+    position:static;order:2;
+    flex:1 1 auto;min-height:0;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
+    padding-bottom:24px;
+    scroll-padding-top:8px;
+  }
+}
+
+/* ---------- stage ---------- */
+.stage{padding:18px;position:relative;overflow:hidden}
+.stage::after{
+  content:"";position:absolute;inset:auto -40px -60px auto;width:220px;height:220px;
+  background:radial-gradient(circle,rgba(242,208,107,.5),transparent 65%);pointer-events:none;
+}
+.stageInner{
+  position:relative;border:2px dashed var(--ink-40);border-radius:16px;
+  background:
+    linear-gradient(#fff,#fff) padding-box,
+    repeating-linear-gradient(45deg,#eee 0 8px,#fff 8px 16px);
+  min-height:340px;display:grid;place-items:center;padding:22px;
+  transition:background .2s, border-color .2s, transform .2s;
+}
+.stageInner.drag{border-color:var(--ink);background:var(--accent)}
+
+.drop{
+  width:100%;max-width:560px;text-align:center;padding:34px 20px;cursor:pointer;
+  border-radius:18px;transition:transform .18s cubic-bezier(.2,.8,.3,1);
+}
+.drop:hover{transform:translateY(-2px)}
+.drop .icon{
+  width:74px;height:74px;margin:0 auto 16px;border:2px solid var(--ink);border-radius:20px;
+  background:var(--accent);display:grid;place-items:center;box-shadow:var(--hard);
+}
+.drop h2{font-size:22px;margin-bottom:8px}
+.drop p{font-size:14px;color:var(--ink-60);font-weight:600;line-height:1.55}
+.drop .hint{
+  margin-top:16px;display:inline-block;background:#fff;border:2px solid var(--ink);
+  border-radius:9999px;padding:7px 15px;font-size:12.5px;font-weight:800;box-shadow:2px 2px 0 0 var(--ink);
+}
+.viewer{width:100%;display:flex;justify-content:center}
+#cv{
+  display:block;max-width:100%;height:auto;border:2px solid var(--ink);
+  border-radius:14px;box-shadow:var(--hard-lg);
+  background-image:conic-gradient(#e9e9e2 0 25%, #fff 0 50%, #e9e9e2 0 75%, #fff 0);
+  background-size:20px 20px;
+  animation:pop .32s cubic-bezier(.2,.9,.25,1.1);
+}
+@keyframes pop{from{opacity:0;transform:scale(.985) translateY(6px)}to{opacity:1;transform:none}}
+
+.stageFoot{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-top:16px;flex-wrap:wrap;
+}
+.stageFoot .meta{font-size:12.5px;font-weight:800;color:var(--ink-60)}
+.stageFoot .footActions{display:flex;gap:8px;flex-wrap:wrap}
+.hidden{display:none !important}
+
+/* ---------- control panel ---------- */
+.panel{padding:18px;position:sticky;top:20px}
+@media (max-width:1080px){ .panel{position:static} }
+.panel .sec + .sec{margin-top:20px;padding-top:18px;border-top:2px dashed var(--ink-12)}
+
+.seg{display:flex;flex-wrap:wrap;gap:8px}
+.seg-btn{
+  border:2px solid var(--ink);border-radius:9999px;background:#fff;font-weight:800;font-size:13px;
+  padding:8px 14px;cursor:pointer;box-shadow:2px 2px 0 0 var(--ink);
+  transition:transform .12s, box-shadow .12s, background .15s;
+}
+.seg-btn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 0 var(--ink)}
+.seg-btn[aria-pressed="true"]{background:var(--accent)}
+.seg-btn:focus-visible{outline:3px solid #7B5CFF;outline-offset:2px}
+
+.swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:12px}
+@media (max-width:420px){ .swatches{grid-template-columns:repeat(4,1fr)} }
+.sw{
+  height:34px;border:2px solid var(--ink);border-radius:10px;cursor:pointer;padding:0;
+  box-shadow:2px 2px 0 0 var(--ink);transition:transform .12s, box-shadow .12s;position:relative;
+}
+.sw:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 0 var(--ink)}
+.sw[aria-pressed="true"]{outline:3px solid var(--ink);outline-offset:2px}
+.sw.tp{
+  background:
+    conic-gradient(#ddd 0 25%,#fff 0 50%,#ddd 0 75%,#fff 0) 0 0/12px 12px;
+}
+
+.field{margin-top:14px}
+.field:first-child{margin-top:0}
+.lab{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:800;margin-bottom:7px}
+.lab output{font-variant-numeric:tabular-nums;background:#fff;border:2px solid var(--ink);border-radius:9999px;padding:1px 9px;font-size:12px;box-shadow:2px 2px 0 0 var(--ink)}
+.row{display:flex;gap:10px;align-items:center}
+.row > *{min-width:0}
+
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:24px;background:transparent;cursor:pointer;margin:0;
+}
+input[type=range]::-webkit-slider-runnable-track{height:12px;background:#fff;border:2px solid var(--ink);border-radius:9999px;box-shadow:2px 2px 0 0 rgba(0,0,0,.85)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-7px;border-radius:50%;background:var(--accent);border:2px solid var(--ink);box-shadow:1.5px 1.5px 0 0 var(--ink)}
+input[type=range]::-moz-range-track{height:12px;background:#fff;border:2px solid var(--ink);border-radius:9999px}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--accent);border:2px solid var(--ink)}
+input[type=range]:focus-visible{outline:3px solid #7B5CFF;outline-offset:4px;border-radius:9999px}
+
+input[type=color]{
+  -webkit-appearance:none;appearance:none;width:100%;height:38px;padding:0;background:#fff;
+  border:2px solid var(--ink);border-radius:12px;box-shadow:2px 2px 0 0 var(--ink);cursor:pointer;
+}
+input[type=color]::-webkit-color-swatch-wrapper{padding:3px}
+input[type=color]::-webkit-color-swatch{border:2px solid var(--ink);border-radius:7px}
+input[type=color]::-moz-color-swatch{border:2px solid var(--ink);border-radius:7px}
+
+input[type=text]{
+  width:100%;font-family:inherit;font-size:14px;font-weight:700;color:var(--ink);
+  padding:10px 14px;border:2px solid var(--ink);border-radius:9999px;background:#fff;
+  box-shadow:2px 2px 0 0 var(--ink);
+}
+input[type=text]::placeholder{color:var(--ink-40);font-weight:600}
+input[type=text]:focus{outline:none;box-shadow:3px 3px 0 0 #7B5CFF}
+input[type=text]:focus-visible{outline:none}
+
+.check{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:800;cursor:pointer;user-select:none}
+.check input{width:18px;height:18px;accent-color:#000;margin:0}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.sublab{font-size:11px;font-weight:800;color:var(--ink-60);margin-bottom:5px;letter-spacing:.02em}
+
+.exportRow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+.exportRow .btn{width:100%}
+.btn.wide{width:100%;margin-top:10px}
+.note{
+  margin-top:12px;font-size:11.5px;font-weight:700;color:var(--ink-60);line-height:1.5;
+  background:#fff;border:2px dashed var(--ink-40);border-radius:12px;padding:9px 12px;
+}
+.hint{
+  margin-top:6px;font-size:11px;font-weight:700;color:var(--ink-40);line-height:1.45;
+}
+#qualityVal{color:var(--ink);font-weight:900}
+.saveRow{
+  margin-top:14px;display:flex;align-items:center;gap:8px;
+  font-size:11px;font-weight:800;color:var(--ink-60);
+}
+.saveDot{
+  width:9px;height:9px;border-radius:50%;flex:0 0 9px;
+  background:var(--accent);border:2px solid var(--ink);
+}
+.saveDot.saving{background:#7B5CFF;animation:pulse .7s ease-in-out infinite alternate}
+.saveDot.saved{background:#3DDC97}
+@keyframes pulse{from{transform:scale(.8);opacity:.65}to{transform:scale(1.25);opacity:1}}
+
+footer{
+  margin-top:26px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  font-size:12px;font-weight:700;color:var(--ink-60);padding:0 6px;
+}
+kbd{
+  font-family:inherit;font-size:11px;font-weight:900;background:#fff;border:2px solid var(--ink);
+  border-radius:7px;padding:1px 6px;box-shadow:2px 2px 0 0 var(--ink);
+}
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed;left:50%;bottom:24px;transform:translate(-50%,140%) rotate(-.6deg);
+  z-index:99;max-width:min(560px,92vw);
+  background:var(--ink);color:#fff;border:2px solid var(--ink);border-radius:16px;
+  box-shadow:var(--hard);padding:13px 18px;font-size:13.5px;font-weight:700;line-height:1.5;
+  opacity:0;transition:transform .34s cubic-bezier(.2,.9,.25,1.15), opacity .24s;
+  pointer-events:none;
+}
+.toast.show{transform:translate(-50%,0) rotate(-.6deg);opacity:1}
+/* While the preview is pinned the toast would sit on top of the controls you're using,
+   so park it just under the pinned preview instead of over the panel. */
+@media (max-width:1080px) and (min-height:480px){
+  body.pinning .toast{
+    top:var(--pin-top, 168px);bottom:auto;
+    transform:translate(-50%,-150%) rotate(-.6deg);
+    font-size:12.5px;padding:10px 14px;
+  }
+  body.pinning .toast.show{transform:translate(-50%,0) rotate(-.6deg)}
+}
+.toast.warn{background:#fff;color:var(--ink)}
+.toast.ok{background:var(--accent);color:var(--ink)}
+.toast b{display:block;font-size:14px;margin-bottom:2px}
+.toast .tip{display:block;margin-top:6px;font-weight:600;opacity:.85}
+@media (prefers-reduced-motion:reduce){ *{animation:none !important;transition:none !important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand card">
+      <div class="mark" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h13A2.5 2.5 0 0 1 21 6.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 15.5v-9Z" stroke="#000" stroke-width="2"/>
+          <circle cx="7" cy="8" r="1.2" fill="#000"/><circle cx="10" cy="8" r="1.2" fill="#000"/>
+          <path d="M6 17.5 11 12l3 3 2.5-2.5L18.5 15" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Screenshot Beautifier</h1>
+        <p>Gradient · Device frame · Soft shadow — all in your browser</p>
+      </div>
+    </div>
+    <div class="topActions">
+      <button class="btn" id="btnShuffle" title="Randomize background and frame">🎲 Shuffle</button>
+      <button class="btn" id="btnCopy" title="Copy PNG to clipboard">Copy PNG</button>
+      <button class="btn btn-primary" id="btnDownload" title="Download PNG">⬇ Download</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============ STAGE ============ -->
+    <section class="stage card">
+      <div class="stageInner" id="stageInner">
+        <div class="drop" id="drop" role="button" tabindex="0" aria-label="Upload or drop a screenshot">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+              <path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h2>Drop your screenshot here</h2>
+          <p>Or click to browse · Or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> to paste</p>
+          <div class="hint">PNG · JPG · WEBP · GIF · AVIF</div>
+        </div>
+        <div class="viewer hidden" id="viewer">
+          <canvas id="cv" aria-label="Beautified screenshot preview"></canvas>
+        </div>
+      </div>
+
+      <div class="stageFoot">
+        <div class="meta" id="dims">No image yet — output size will appear here</div>
+        <div class="footActions">
+          <button class="btn btn-sm" id="btnReplace">Replace image</button>
+          <button class="btn btn-sm" id="btnSettingsLink2">🔗 Settings link</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PANEL ============ -->
+    <aside class="panel card">
+
+      <div class="sec">
+        <div class="eyebrow">Backdrop</div>
+        <div class="swatches" id="swatches"></div>
+        <div class="seg" id="bgSeg" style="margin-bottom:12px">
+          <button class="seg-btn" data-bg="gradient" aria-pressed="true">Gradient</button>
+          <button class="seg-btn" data-bg="solid" aria-pressed="false">Solid</button>
+          <button class="seg-btn" data-bg="transparent" aria-pressed="false">Transparent</button>
+        </div>
+        <div id="gradControls">
+          <div class="grid3">
+            <div><div class="sublab">Stop A</div><input type="color" data-k="c1" aria-label="Gradient colour A"></div>
+            <div><div class="sublab">Stop B</div><input type="color" data-k="c2" aria-label="Gradient colour B"></div>
+            <div><div class="sublab">Accent</div><input type="color" data-k="c3" aria-label="Gradient accent colour"></div>
+          </div>
+          <div class="field">
+            <label class="check"><input type="checkbox" data-k="useC"> Use 3-colour blend</label>
+          </div>
+          <div class="field">
+            <div class="lab"><span>Angle</span><output data-for="angle"></output></div>
+            <input type="range" data-k="angle" min="0" max="360" step="1" aria-label="Gradient angle">
+          </div>
+        </div>
+        <div class="field hidden" id="solidControl">
+          <div class="sublab">Background colour</div>
+          <input type="color" data-k="solid" aria-label="Solid background colour">
+        </div>
+        <div class="field">
+          <div class="sublab">Texture</div>
+          <div class="seg" id="texSeg">
+            <button class="seg-btn" data-tex="grain" aria-pressed="true">Grain</button>
+            <button class="seg-btn" data-tex="grid" aria-pressed="false">Grid</button>
+            <button class="seg-btn" data-tex="dots" aria-pressed="false">Dots</button>
+            <button class="seg-btn" data-tex="none" aria-pressed="false">None</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="eyebrow">Device frame</div>
+        <div class="seg" id="frameSeg">
+          <button class="seg-btn" data-frame="browser" aria-pressed="true">Browser</button>
+          <button class="seg-btn" data-frame="dark" aria-pressed="false">Dark</button>
+          <button class="seg-btn" data-frame="phone" aria-pressed="false">Phone</button>
+          <button class="seg-btn" data-frame="border" aria-pressed="false">Outline</button>
+          <button class="seg-btn" data-frame="none" aria-pressed="false">None</button>
+        </div>
+        <div class="field" id="urlField">
+          <div class="sublab">Browser bar text (optional)</div>
+          <input type="text" data-k="url" placeholder="yourapp.com" maxlength="46" aria-label="Browser address bar text">
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="eyebrow">Layout</div>
+        <div class="field">
+          <div class="sublab">Quick presets</div>
+          <div class="seg">
+            <button class="seg-btn" data-quick="x">X / Twitter</button>
+            <button class="seg-btn" data-quick="li">LinkedIn</button>
+            <button class="seg-btn" data-quick="ph">Product Hunt</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="sublab">Crop to ratio</div>
+          <div class="seg" id="ratioSeg">
+            <button class="seg-btn" data-ratio="auto" aria-pressed="true">Auto</button>
+            <button class="seg-btn" data-ratio="16:9" aria-pressed="false">16:9</button>
+            <button class="seg-btn" data-ratio="4:3" aria-pressed="false">4:3</button>
+            <button class="seg-btn" data-ratio="1:1" aria-pressed="false">1:1</button>
+            <button class="seg-btn" data-ratio="9:16" aria-pressed="false">9:16</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="lab"><span>Padding</span><output data-for="inset"></output></div>
+          <input type="range" data-k="inset" min="0" max="22" step="0.5" aria-label="Padding around the screenshot">
+        </div>
+        <div class="field">
+          <div class="lab"><span>Corner radius</span><output data-for="radius"></output></div>
+          <input type="range" data-k="radius" min="0" max="12" step="0.2" aria-label="Corner radius">
+        </div>
+        <div class="field">
+          <div class="lab"><span>Soft shadow</span><output data-for="shadow"></output></div>
+          <input type="range" data-k="shadow" min="0" max="22" step="0.5" aria-label="Drop shadow strength">
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="eyebrow">Caption</div>
+        <input type="text" data-k="caption" placeholder="Add a headline…" maxlength="70" aria-label="Caption text">
+        <div class="field row">
+          <div style="flex:0 0 64px"><div class="sublab">Colour</div><input type="color" data-k="capColor" aria-label="Caption colour"></div>
+          <div style="flex:1"><div class="sublab">Size</div><input type="range" data-k="capSize" min="2" max="8" step="0.1" aria-label="Caption size"></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="eyebrow">Export</div>
+
+        <div class="sublab">File name</div>
+        <input type="text" id="fileName" placeholder="screenshot-beautified" maxlength="60" aria-label="Output file name" spellcheck="false">
+        <div class="hint" id="fileNameHint">Leave empty to use the source name.</div>
+
+        <div class="field">
+          <div class="sublab">Format</div>
+          <div class="seg" id="formatSeg">
+            <button class="seg-btn" data-format="png" aria-pressed="true">PNG</button>
+            <button class="seg-btn" data-format="jpg" aria-pressed="false">JPG</button>
+            <button class="seg-btn" data-format="jpeg" aria-pressed="false">JPEG</button>
+            <button class="seg-btn" data-format="webp" aria-pressed="false">WebP</button>
+          </div>
+        </div>
+
+        <div class="field" id="qualityField" hidden>
+          <div class="sublab">Quality <span id="qualityVal">92%</span></div>
+          <input type="range" id="qualityRange" min="50" max="100" step="1" aria-label="Compression quality">
+          <div class="hint">Smaller files, slightly softer edges. PNG stays lossless.</div>
+        </div>
+
+        <div class="field">
+          <div class="sublab">Resolution</div>
+          <div class="seg" id="scaleSeg">
+            <button class="seg-btn" data-scale="1" aria-pressed="false">1×</button>
+            <button class="seg-btn" data-scale="2" aria-pressed="true">2×</button>
+            <button class="seg-btn" data-scale="3" aria-pressed="false">3×</button>
+          </div>
+        </div>
+
+        <div class="exportRow">
+          <button class="btn btn-primary" id="btnDownload2">⬇ PNG</button>
+          <button class="btn" id="btnCopy2">Copy</button>
+        </div>
+        <div class="note" id="permNote">
+          Everything renders locally with the Canvas API — your screenshot is never uploaded anywhere.
+        </div>
+
+        <div class="saveRow">
+          <span class="saveDot" id="saveDot" aria-hidden="true"></span>
+          <span id="saveLabel">Settings save automatically</span>
+        </div>
+        <div class="exportRow">
+          <button class="btn btn-sm" id="btnSettingsLink">🔗 Settings link</button>
+          <button class="btn btn-sm" id="btnReset">Reset style</button>
+        </div>
+        <button class="btn btn-sm wide" id="btnUnpin" hidden>📌 Pin preview</button>
+        <div class="hint">Open the settings link on another device to show it this exact look and export setup.</div>
+      </div>
+
+    </aside>
+  </main>
+
+  <footer>
+    <span>Screenshot Beautifier · single-file, zero dependencies, zero network calls</span>
+    <span><kbd>Ctrl</kbd>+<kbd>V</kbd> paste · <kbd>S</kbd> shuffle · <kbd>D</kbd> download</span>
+  </footer>
+</div>
+
+<input type="file" id="file" accept="image/*" hidden>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ---------------- tiny helpers ---------------- */
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+  /* ---------------- state ---------------- */
+  const DEFAULTS = {
+    bgType: "gradient",
+    c1: "#F2D06B", c2: "#7B5CFF", c3: "#3DDC97", useC: true,
+    solid: "#F5F5F0",
+    angle: 135,
+    texture: "grain",
+    frame: "browser",
+    url: "",
+    inset: 9, radius: 2.4, shadow: 9,
+    ratio: "auto",
+    caption: "", capColor: "#141414", capSize: 4.2,
+    scale: 2,
+    format: "png",
+    quality: 92,
+    fileName: ""
+  };
+  /* Output formats. jpg + jpeg share a MIME type but differ in file extension. */
+  const FORMATS = {
+    png:  { mime: "image/png",  ext: "png",  lossy: false, label: "PNG",  alpha: true  },
+    jpg:  { mime: "image/jpeg", ext: "jpg",  lossy: true,  label: "JPG",  alpha: false },
+    jpeg: { mime: "image/jpeg", ext: "jpeg", lossy: true,  label: "JPEG", alpha: false },
+    webp: { mime: "image/webp", ext: "webp", lossy: true,  label: "WebP", alpha: true  }
+  };
+  const fmt = () => FORMATS[state.format] || FORMATS.png;
+
+  /* ---------------- persistence ----------------
+     Settings are saved to localStorage so they survive a reload in this browser.
+     Because the app has no backend, cross-device transfer uses a settings link:
+     the whole state is packed into the URL hash (#s=…), so opening that link on a
+     phone or another machine restores the exact same look and export options. */
+  const STORAGE_KEY = "screenshot-beautifier:v1";
+
+  function b64uEncode(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64uDecode(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    const bin = atob(s);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  /* A settings link wins over this browser's saved state — that's the whole point of sharing it. */
+  function readSaved() {
+    let raw = null, from = "";
+    try {
+      const m = (location.hash || "").match(/[#&]s=([A-Za-z0-9_-]+)/);
+      if (m) { raw = b64uDecode(m[1]); from = "link"; }
+    } catch (_) { /* bad link — fall through to storage */ }
+    if (raw === null) {
+      try {
+        const r = localStorage.getItem(STORAGE_KEY);
+        if (r) { raw = r; from = "store"; }
+      } catch (_) { /* private mode / file:// — run without persistence */ }
+    }
+    if (raw === null) return { state: {}, presetIndex: 0, from: "" };
+    try {
+      const o = JSON.parse(raw);
+      const s = (o && o.state && typeof o.state === "object") ? o.state : {};
+      // Keep only keys we still know about, with the right types — blocks stale or corrupt payloads.
+      const clean = {};
+      for (const k of Object.keys(DEFAULTS)) {
+        if (!(k in s)) continue;
+        const dv = DEFAULTS[k];
+        if (typeof dv === "number") { if (Number.isFinite(+s[k])) clean[k] = +s[k]; }
+        else if (typeof s[k] === typeof dv) clean[k] = s[k];
+      }
+      if (!FORMATS[clean.format]) clean.format = DEFAULTS.format;
+      const pi = (o && Number.isInteger(o.presetIndex)) ? o.presetIndex : DEFAULTS.presetIndex;
+      return { state: clean, presetIndex: pi, from };
+    } catch (_) { return { state: {}, presetIndex: 0, from: "" }; }
+  }
+
+  const SAVED = readSaved();
+  let state = { ...DEFAULTS, ...SAVED.state };
+
+  let persistTimer = null;
+  function persist() {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, state, presetIndex }));
+        onPersisted(true);
+      } catch (_) {
+        // Quota exceeded, or storage blocked (private mode / file://) — the app still works,
+        // the settings just won't survive a reload. Say so instead of pretending to save.
+        onPersisted(false);
+      }
+    }, 250);
+  }
+  /* Set by the UI wiring below; kept as a no-op so persist() is safe before wiring runs. */
+  let onPersisted = () => {};
+  function settingsLink() {
+    return location.origin + location.pathname + location.search +
+      "#s=" + b64uEncode(JSON.stringify({ v: 1, state, presetIndex }));
+  }
+
+  const PRESETS = [
+    { n: "Aurora",    c: ["#F2D06B", "#7B5CFF", "#3DDC97"] },
+    { n: "Canary",    c: ["#F2D06B", "#FFFDF5"] },
+    { n: "Lilac",     c: ["#D7C4FF", "#7B5CFF", "#F2D06B"] },
+    { n: "Sunset",    c: ["#FFC16B", "#F26B6B"] },
+    { n: "Peach",     c: ["#FFD3A5", "#FD6585"] },
+    { n: "Mint",      c: ["#B8F2E6", "#3DDC97"] },
+    { n: "Sky",       c: ["#A9C9FF", "#5B7CFA"] },
+    { n: "Citrus",    c: ["#F2D06B", "#8BD450"] },
+    { n: "Bubblegum", c: ["#FFC7F0", "#8E7CFF"] },
+    { n: "Cream",     c: ["#FFFFFF", "#EFEDE3"] },
+    { n: "Slate",     c: ["#8794A6", "#1E2530"] },
+    { n: "Ink",       c: ["#3A3A3A", "#000000"] }
+  ];
+  let presetIndex = SAVED.presetIndex;
+
+  /* ---------------- elements ---------------- */
+  const cv = $("#cv"), ctx = cv.getContext("2d");
+  const drop = $("#drop"), stageInner = $("#stageInner"), viewer = $("#viewer");
+  const fileInput = $("#file"), dimsEl = $("#dims"), toastEl = $("#toast");
+  let img = null, imgName = "screenshot";
+
+  /* ---------------- toast ---------------- */
+  let toastTimer = null;
+  function notify(title, body, kind = "") {
+    toastEl.textContent = "";
+    const b = document.createElement("b"); b.textContent = title;
+    const s = document.createElement("span"); s.className = "tip"; s.textContent = body || "";
+    toastEl.appendChild(b);
+    if (body) toastEl.appendChild(s);
+    toastEl.className = "toast show " + kind;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.className = "toast " + kind; }, body ? 5400 : 2600);
+  }
+
+  /* ---------------- noise tile ---------------- */
+  let noisePattern = null;
+  function getNoise() {
+    if (noisePattern) return noisePattern;
+    const n = document.createElement("canvas");
+    n.width = n.height = 160;
+    const nx = n.getContext("2d");
+    const d = nx.createImageData(160, 160);
+    for (let i = 0; i < d.data.length; i += 4) {
+      const v = Math.random() * 255;
+      d.data[i] = d.data[i + 1] = d.data[i + 2] = v;
+      d.data[i + 3] = 26;
+    }
+    nx.putImageData(d, 0, 0);
+    noisePattern = ctx.createPattern(n, "repeat");
+    return noisePattern;
+  }
+
+  /* ---------------- geometry helpers ---------------- */
+  function path(x, y, w, h, tl, tr, br, bl) {
+    const r = Math.max(0, Math.min(tl, w / 2, h / 2));
+    const r2 = Math.max(0, Math.min(tr, w / 2, h / 2));
+    const r3 = Math.max(0, Math.min(br, w / 2, h / 2));
+    const r4 = Math.max(0, Math.min(bl, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r2, y);
+    ctx.arcTo(x + w, y, x + w, y + r2, r2);
+    ctx.lineTo(x + w, y + h - r3);
+    ctx.arcTo(x + w, y + h, x + w - r3, y + h, r3);
+    ctx.lineTo(x + r4, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r4, r4);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+  }
+  const pathAll = (x, y, w, h, r) => path(x, y, w, h, r, r, r, r);
+
+  function gradPoints(W, H, deg) {
+    const a = (deg * Math.PI) / 180;
+    const cx = W / 2, cy = H / 2;
+    const len = Math.abs(W * Math.cos(a)) + Math.abs(H * Math.sin(a));
+    const dx = (Math.cos(a) * len) / 2, dy = (Math.sin(a) * len) / 2;
+    return [cx - dx, cy - dy, cx + dx, cy + dy];
+  }
+
+  /* ---------------- layout ---------------- */
+  const RATIOS = { "auto": null, "16:9": 16 / 9, "4:3": 4 / 3, "1:1": 1, "3:2": 3 / 2, "9:16": 9 / 16 };
+
+  function layout() {
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const target = RATIOS[state.ratio] || null;
+    const aspect = target || iw / ih;
+
+    const maxBase = 2200;
+    const s = Math.min(1, maxBase / iw);
+    const shotW = iw * s;
+    const shotH = shotW / aspect;
+
+    let barH = 0, bezel = 0, stroke = 0;
+    if (state.frame === "browser" || state.frame === "dark") barH = Math.max(30, shotW * 0.055);
+    if (state.frame === "phone") bezel = Math.max(12, shotW * 0.038);
+    if (state.frame === "border") stroke = Math.max(3, shotW * 0.0055);
+
+    const cardW = shotW + bezel * 2 + stroke * 2;
+    const cardH = shotH + barH + bezel * 2 + stroke * 2;
+
+    const inset = shotW * (state.inset / 100);
+    let radius = shotW * (state.radius / 100);
+    if (state.frame === "phone") radius = Math.max(radius, shotW * 0.115);
+
+    const hasCap = state.caption.trim().length > 0;
+    const capSize = shotW * (state.capSize / 100);
+    const capGap = hasCap ? shotW * 0.028 : 0;
+    const capH = hasCap ? capSize * 1.35 : 0;
+
+    const W = cardW + inset * 2;
+    const H = cardH + inset * 2 + capGap + capH;
+    const cardX = inset, cardY = inset;
+    const imgX = cardX + bezel + stroke;
+    const imgY = cardY + barH + bezel + stroke;
+
+    const cardR = state.frame === "border" ? Math.max(0, radius - stroke) : radius;
+
+    return {
+      W, H, cardX, cardY, cardW, cardH, imgX, imgY,
+      shotW, shotH, barH, bezel, stroke, radius, cardR, inset, target,
+      capSize, capTop: cardY + cardH + capGap, hasCap, iw, ih
+    };
+  }
+
+  function stops() {
+    return state.useC ? [state.c1, state.c3, state.c2] : [state.c1, state.c2];
+  }
+
+  /* ---------------- render ---------------- */
+  function renderScene(c, scale) {
+    const L = layout();
+    c.setTransform(scale, 0, 0, scale, 0, 0);
+    c.clearRect(0, 0, L.W, L.H);
+    c.imageSmoothingQuality = "high";
+
+    /* backdrop */
+    if (state.bgType === "gradient") {
+      const [x0, y0, x1, y1] = gradPoints(L.W, L.H, state.angle);
+      const g = c.createLinearGradient(x0, y0, x1, y1);
+      const st = stops();
+      st.forEach((col, i) => g.addColorStop(st.length === 1 ? 0 : i / (st.length - 1), col));
+      c.fillStyle = g;
+    } else if (state.bgType === "solid") {
+      c.fillStyle = state.solid;
+    }
+    if (state.bgType !== "transparent") c.fillRect(0, 0, L.W, L.H);
+
+    /* texture */
+    if (state.texture !== "none") {
+      c.save();
+      if (state.texture === "grain") {
+        c.globalAlpha = 0.9;
+        c.fillStyle = getNoise();
+        c.fillRect(0, 0, L.W, L.H);
+      } else if (state.texture === "grid") {
+        c.strokeStyle = "rgba(0,0,0,.07)";
+        c.lineWidth = Math.max(1, L.W * 0.0011);
+        const step = Math.max(28, L.W / 34);
+        for (let x = step; x < L.W; x += step) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, L.H); c.stroke(); }
+        for (let y = step; y < L.H; y += step) { c.beginPath(); c.moveTo(0, y); c.lineTo(L.W, y); c.stroke(); }
+      } else if (state.texture === "dots") {
+        c.fillStyle = "rgba(0,0,0,.10)";
+        const step = Math.max(26, L.W / 30), rad = Math.max(1.4, L.W * 0.0016);
+        for (let x = step / 2; x < L.W; x += step)
+          for (let y = step / 2; y < L.H; y += step) { c.beginPath(); c.arc(x, y, rad, 0, 6.2832); c.fill(); }
+      }
+      c.restore();
+    }
+
+    /* shadow + card body */
+    const isDark = state.frame === "dark" || state.frame === "phone";
+    c.save();
+    const blur = L.shotW * (state.shadow / 100) * 0.75;
+    if (blur > 0) {
+      c.shadowColor = "rgba(0,0,0,.42)";
+      c.shadowBlur = blur;
+      c.shadowOffsetY = blur * 0.42;
+      c.shadowOffsetX = 0;
+    }
+    c.fillStyle = isDark ? "#111111" : "#ffffff";
+    pathAll(L.cardX, L.cardY, L.cardW, L.cardH, L.cardR);
+    c.fill();
+    c.restore();
+
+    /* source crop */
+    let sx = 0, sy = 0, sw = L.iw, sh = L.ih;
+    if (L.target) {
+      const a = L.iw / L.ih;
+      if (a > L.target) { sw = L.ih * L.target; sx = (L.iw - sw) / 2; }
+      else { sh = L.iw / L.target; sy = (L.ih - sh) / 2; }
+    }
+
+    /* frame chrome */
+    if (state.frame === "browser" || state.frame === "dark") {
+      const dark = state.frame === "dark";
+      const bar = dark ? "#1E1E1E" : "#F7F7F4";
+      path(L.cardX, L.cardY, L.cardW, L.barH, L.radius, L.radius, 0, 0);
+      c.fillStyle = bar; c.fill();
+
+      // traffic lights
+      const dr = Math.max(4, L.barH * 0.17);
+      const gap = dr * 2.9;
+      const startX = L.cardX + L.barH * 0.55;
+      const cy = L.cardY + L.barH / 2;
+      ["#FF5F57", "#FEBC2E", "#28C840"].forEach((col, i) => {
+        c.beginPath();
+        c.arc(startX + i * gap, cy, dr, 0, 6.2832);
+        c.fillStyle = col; c.fill();
+      });
+
+      // url pill
+      const pw = L.cardW * (state.url ? Math.min(0.62, 0.18 + state.url.length * 0.021) : 0.34);
+      const ph = L.barH * 0.52;
+      const px = L.cardX + (L.cardW - pw) / 2;
+      const py = cy - ph / 2;
+      pathAll(px, py, pw, ph, ph / 2);
+      c.fillStyle = dark ? "#2E2E2E" : "#FFFFFF";
+      c.fill();
+      c.strokeStyle = dark ? "rgba(255,255,255,.14)" : "rgba(0,0,0,.14)";
+      c.lineWidth = Math.max(1, L.barH * 0.02); c.stroke();
+      if (state.url) {
+        c.fillStyle = dark ? "rgba(255,255,255,.72)" : "rgba(0,0,0,.62)";
+        c.font = `700 ${ph * 0.58}px ${getComputedStyle(document.body).fontFamily}`;
+        c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText(state.url, px + pw / 2, cy + ph * 0.02, pw * 0.9);
+      }
+
+      // separator
+      c.beginPath();
+      c.moveTo(L.cardX, L.cardY + L.barH);
+      c.lineTo(L.cardX + L.cardW, L.cardY + L.barH);
+      c.strokeStyle = dark ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.10)";
+      c.lineWidth = Math.max(1, L.barH * 0.03); c.stroke();
+
+      // screenshot (bottom corners rounded)
+      c.save();
+      path(L.imgX, L.imgY, L.shotW, L.shotH, 0, 0, L.radius, L.radius);
+      c.clip();
+      c.drawImage(img, sx, sy, sw, sh, L.imgX, L.imgY, L.shotW, L.shotH);
+      c.restore();
+    } else if (state.frame === "phone") {
+      // screen
+      const inner = Math.max(2, L.radius - L.bezel * 0.55);
+      c.save();
+      pathAll(L.imgX, L.imgY, L.shotW, L.shotH, inner);
+      c.clip();
+      c.drawImage(img, sx, sy, sw, sh, L.imgX, L.imgY, L.shotW, L.shotH);
+      c.restore();
+
+      // notch
+      const nw = L.shotW * 0.30, nh = Math.max(6, L.shotH * 0.028);
+      pathAll(L.cardX + (L.cardW - nw) / 2, L.imgY + L.shotH * 0.018, nw, nh, nh / 2);
+      c.fillStyle = "#0B0B0B"; c.fill();
+
+      // home indicator
+      const hw = L.shotW * 0.34, hh = Math.max(3, L.shotH * 0.008);
+      pathAll(L.cardX + (L.cardW - hw) / 2, L.imgY + L.shotH * 0.975, hw, hh, hh / 2);
+      c.fillStyle = "rgba(255,255,255,.55)"; c.fill();
+    } else {
+      // none / outline
+      c.save();
+      pathAll(L.imgX, L.imgY, L.shotW, L.shotH, L.cardR);
+      c.clip();
+      c.drawImage(img, sx, sy, sw, sh, L.imgX, L.imgY, L.shotW, L.shotH);
+      c.restore();
+      if (state.frame === "border") {
+        pathAll(L.imgX, L.imgY, L.shotW, L.shotH, L.cardR);
+        c.strokeStyle = "#000000";
+        c.lineWidth = L.stroke;
+        c.stroke();
+      }
+    }
+
+    /* caption */
+    if (L.hasCap) {
+      c.fillStyle = state.capColor;
+      c.font = `900 ${L.capSize}px ${getComputedStyle(document.body).fontFamily}`;
+      c.textAlign = "center"; c.textBaseline = "top";
+      c.fillText(state.caption.trim(), L.W / 2, L.capTop, L.W - L.inset * 1.2);
+    }
+  }
+
+  /* ---------------- preview ---------------- */
+  let rafId = null;
+  function scheduleRender(save) {
+    if (save !== false) { persist(); markDirty(); }
+    if (!img) return;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(renderPreview);
+  }
+  let lastL = null;
+  function renderPreview() {
+    const L = layout();
+    lastL = L;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const fit = Math.min(1, 1500 / L.W);
+    const scale = Math.max(0.25, Math.min(dpr, fit * dpr + 0.001, 2));
+    cv.width = Math.max(2, Math.round(L.W * scale));
+    cv.height = Math.max(2, Math.round(L.H * scale));
+    cv.style.aspectRatio = `${L.W} / ${L.H}`;
+    renderScene(ctx, scale);
+    updateDims(L);
+  }
+  function updateDims(L) {
+    if (!L) { dimsEl.textContent = "No image yet — output size will appear here"; return; }
+    const w = Math.round(L.W * state.scale), h = Math.round(L.H * state.scale);
+    dimsEl.textContent = `${img.naturalWidth}×${img.naturalHeight} source → ${w}×${h} px @${state.scale}×`;
+  }
+
+  /* ---------------- export ---------------- */
+
+  /* Turn whatever the user typed into a safe file name, then append the real extension. */
+  function outName(ext) {
+    let base = (state.fileName || "").trim() || (imgName + "-beautified");
+    // Drop a trailing extension the user may have typed, so we never emit "shot.png.jpg".
+    base = base.replace(/\.(png|jpe?g|webp|gif|avif|bmp)$/i, "");
+    base = base
+      .replace(/[\\/:*?"<>|]+/g, "-")   // characters Windows/macOS refuse
+      .replace(/\s+/g, "-")             // spaces → dashes
+      .replace(/-{2,}/g, "-")           // collapse doubles like "Post:-Q3" → "Post-Q3"
+      .replace(/^[.\-]+|[.\-]+$/g, "")  // trim leading/trailing dots & dashes
+      .slice(0, 80);
+    return (base || "screenshot") + "." + ext;
+  }
+
+  function buildExport() {
+    if (!img) { notify("No image loaded", "Drop a screenshot or press Ctrl+V first.", "warn"); return null; }
+    const L = layout();
+    // guard against canvases the browser can't allocate (~30MP practical cap)
+    let safe = state.scale;
+    while (safe > 1 && Math.round(L.W * safe) * Math.round(L.H * safe) > 30e6) safe -= 1;
+    if (safe < 1) safe = 1;
+    if (safe < state.scale) {
+      notify("Resolution limited", `Your browser caps very large canvases — exported at ${safe}× instead of ${state.scale}×.`, "warn");
+    }
+    // Render the export onto the LIVE preview canvas at the target scale (we know this works in every browser),
+    // then clone the finished pixels into a fresh detached canvas for toBlob. This avoids a Chromium quirk
+    // where drawImage(HTMLImageElement, …) and certain path fills can silently drop content when the destination
+    // canvas has never been attached to the DOM (seen in headless and a few in-app offscreen paths).
+    const prevW = cv.width, prevH = cv.height;
+    cv.width = Math.max(2, Math.round(L.W * safe));
+    cv.height = Math.max(2, Math.round(L.H * safe));
+    cv.style.aspectRatio = `${L.W} / ${L.H}`;
+    renderScene(ctx, safe);
+
+    const out = document.createElement("canvas");
+    out.width = cv.width;
+    out.height = cv.height;
+    const oc = out.getContext("2d");
+    // JPEG has no alpha channel: transparent backdrops would turn black, so lay down white first.
+    if (!fmt().alpha) { oc.fillStyle = "#ffffff"; oc.fillRect(0, 0, out.width, out.height); }
+    oc.drawImage(cv, 0, 0);
+
+    // Restore the on-screen preview canvas (RAF so it runs after the synchronous clone above).
+    requestAnimationFrame(() => {
+      if (prevW > 0 && prevH > 0) { cv.width = prevW; cv.height = prevH; }
+      renderPreview();
+    });
+    return out;
+  }
+
+  function canvasBlob(canvas, mime, quality) {
+    return new Promise((res, rej) => {
+      try {
+        canvas.toBlob(
+          b => (b ? res(b) : rej(new Error("toBlob returned null"))),
+          mime,
+          mime === "image/png" ? undefined : quality
+        );
+      } catch (e) { rej(e); }
+    });
+  }
+
+  async function download() {
+    const out = buildExport();
+    if (!out) return;
+    const f = fmt();
+    try {
+      const blob = await canvasBlob(out, f.mime, state.quality / 100);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = outName(f.ext);
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+      // A browser that can't encode the requested type silently falls back to PNG.
+      const fellBack = blob.type && blob.type !== f.mime;
+      const kb = Math.round(blob.size / 1024);
+      notify(
+        "Saved ✓",
+        `${a.download} — ${out.width}×${out.height}, ${kb < 1024 ? kb + " KB" : (kb / 1024).toFixed(1) + " MB"}.` +
+        (fellBack ? ` Your browser can’t encode ${f.label}, so it saved a PNG instead.` : ""),
+        fellBack ? "warn" : "ok"
+      );
+    } catch (e) {
+      notify("Export failed", "The browser blocked the download. Right-click the preview and choose “Save image as…” instead.", "warn");
+    }
+  }
+  async function copyPNG() {
+    const out = buildExport();
+    if (!out) return;
+    try {
+      if (!navigator.clipboard || typeof window.ClipboardItem === "undefined") throw new Error("unsupported");
+      // The clipboard image API only reliably accepts PNG, so Copy always uses it regardless of the
+      // download format. Anything else is rejected by Chrome/Safari.
+      const blob = await canvasBlob(out, "image/png");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      notify("Copied ✓", "Pasted as PNG — the clipboard only takes PNG. Use Download for " + fmt().label + ".", "ok");
+    } catch (e) {
+      const insecure = !window.isSecureContext;
+      notify(
+        "Clipboard blocked",
+        (insecure ? "This page isn’t on https:// or localhost, so the browser refuses clipboard writes. " : "The browser denied clipboard access. ") +
+        "Use Download PNG instead, or right-click the preview → Copy image.",
+        "warn"
+      );
+    }
+  }
+
+  /* ---------------- image intake ---------------- */
+  function loadFile(f) {
+    if (!f) return;
+    if (!/^image\//.test(f.type) && !/\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(f.name || "")) {
+      notify("That’s not an image", "Pick a PNG, JPG, WEBP, GIF or AVIF file.", "warn");
+      return;
+    }
+    const url = URL.createObjectURL(f);
+    const im = new Image();
+    im.onload = () => {
+      img = im;
+      imgName = (f.name || "screenshot").replace(/\.[^.]+$/, "").replace(/[^\w-]+/g, "-").slice(0, 40) || "screenshot";
+      URL.revokeObjectURL(url);
+      drop.classList.add("hidden");
+      viewer.classList.remove("hidden");
+      syncExportUI();
+      syncPin();
+      renderPreview();
+      notify("Screenshot loaded", `${im.naturalWidth}×${im.naturalHeight}. ${narrowMq.matches ? "The preview stays pinned while you scroll the controls." : "Tweak the panel on the right."}`, "ok");
+    };
+    im.onerror = () => {
+      URL.revokeObjectURL(url);
+      notify("Couldn’t read that image", "It may be corrupt or in a format this browser can’t decode (e.g. HEIC). Export it as PNG or JPG and retry.", "warn");
+    };
+    im.src = url;
+  }
+
+  function handlePaste(e) {
+    const cd = e.clipboardData;
+    if (!cd) {
+      notify("Clipboard unavailable", "Your browser didn’t expose the clipboard. Use the upload button or drag & drop instead.", "warn");
+      return;
+    }
+    const items = cd.items ? Array.from(cd.items) : [];
+    const fileItem = items.find(i => i.type && i.type.indexOf("image/") === 0);
+    if (fileItem) {
+      const f = fileItem.getAsFile();
+      if (f) { e.preventDefault(); loadFile(f); return; }
+      notify("Clipboard read blocked", "The browser hid the image data. Use drag & drop or the upload button.", "warn");
+      return;
+    }
+    const files = cd.files ? Array.from(cd.files) : [];
+    if (files.length) { e.preventDefault(); loadFile(files[0]); }
+  }
+
+  /* clipboard permission hint (best-effort) */
+  (async () => {
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) return;
+      const r = await navigator.permissions.query({ name: "clipboard-read" });
+      if (r.state === "denied") {
+        $("#permNote").innerHTML =
+          "<b>Clipboard is blocked in this browser.</b> Paste (Ctrl+V) won’t work — use drag &amp; drop or the upload button, and use Download instead of Copy.";
+      }
+    } catch (_) { /* not supported — silent */ }
+  })();
+
+  /* ---------------- UI wiring ---------------- */
+  function syncSegs() {
+    $$("#bgSeg .seg-btn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.bg === state.bgType)));
+    $$("#texSeg .seg-btn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tex === state.texture)));
+    $$("#frameSeg .seg-btn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.frame === state.frame)));
+    $$("#ratioSeg .seg-btn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ratio === state.ratio)));
+    $$("#scaleSeg .seg-btn").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.scale === state.scale)));
+    $$("#swatches .sw").forEach((b, i) => b.setAttribute("aria-pressed", String(i === presetIndex && state.bgType === "gradient")));
+    $("#gradControls").classList.toggle("hidden", state.bgType !== "gradient");
+    $("#solidControl").classList.toggle("hidden", state.bgType !== "solid");
+    $("#urlField").classList.toggle("hidden", !(state.frame === "browser" || state.frame === "dark"));
+    syncExportUI();
+    markDirty();
+  }
+  function syncOutputs() {
+    $$("[data-for]").forEach(o => {
+      const k = o.dataset.for, v = state[k];
+      if (k === "angle") o.textContent = v + "°";
+      else if (k === "inset" || k === "radius" || k === "shadow") o.textContent = (+v).toFixed(1) + "%";
+      else o.textContent = v;
+    });
+  }
+
+  // generic data-k binding
+  $$("[data-k]").forEach(el => {
+    const k = el.dataset.k;
+    if (el.type === "checkbox") {
+      el.checked = !!state[k];
+      el.addEventListener("change", () => { state[k] = el.checked; scheduleRender(); });
+    } else {
+      el.value = state[k];
+      const handler = () => {
+        state[k] = el.type === "range" ? parseFloat(el.value) : el.value;
+        syncOutputs();
+        scheduleRender();
+      };
+      el.addEventListener("input", handler);
+      if (el.type === "color" || el.tagName === "INPUT") el.addEventListener("change", handler);
+    }
+  });
+
+  // swatches
+  const swWrap = $("#swatches");
+  PRESETS.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.className = "sw";
+    b.type = "button";
+    b.title = p.n;
+    b.setAttribute("aria-label", p.n + " gradient");
+    b.setAttribute("aria-pressed", "false");
+    const st = p.c.length === 3 ? [p.c[0], p.c[2], p.c[1]] : p.c;
+    b.style.background = `linear-gradient(135deg, ${st.join(", ")})`;
+    b.addEventListener("click", () => {
+      presetIndex = i;
+      state.bgType = "gradient";
+      state.c1 = p.c[0]; state.c2 = p.c[1];
+      if (p.c[2]) { state.c3 = p.c[2]; state.useC = true; } else { state.useC = false; }
+      $('[data-k="c1"]').value = state.c1;
+      $('[data-k="c2"]').value = state.c2;
+      $('[data-k="c3"]').value = state.c3;
+      $('[data-k="useC"]').checked = state.useC;
+      syncSegs(); scheduleRender();
+    });
+    swWrap.appendChild(b);
+  });
+  const tpBtn = document.createElement("button");
+  tpBtn.className = "sw tp"; tpBtn.type = "button"; tpBtn.title = "Transparent";
+  tpBtn.setAttribute("aria-label", "Transparent background");
+  tpBtn.addEventListener("click", () => { state.bgType = "transparent"; syncSegs(); scheduleRender(); });
+  swWrap.appendChild(tpBtn);
+
+  function bindSeg(sel, attr, apply) {
+    $(sel).addEventListener("click", e => {
+      const b = e.target.closest(".seg-btn");
+      if (!b) return;
+      apply(b.dataset[attr]);
+      syncSegs(); syncOutputs(); scheduleRender();
+    });
+  }
+  bindSeg("#bgSeg", "bg", v => { state.bgType = v; });
+  bindSeg("#texSeg", "tex", v => { state.texture = v; });
+  bindSeg("#frameSeg", "frame", v => { state.frame = v; });
+  bindSeg("#ratioSeg", "ratio", v => { state.ratio = v; });
+  bindSeg("#scaleSeg", "scale", v => { state.scale = +v; updateDims(lastL); });
+  bindSeg("#formatSeg", "format", v => { state.format = v; });
+
+  /* export panel: format + file name + quality */
+  const fileNameEl = $("#fileName"), qualityRange = $("#qualityRange");
+  function syncExportUI() {
+    $$("#formatSeg .seg-btn").forEach(b =>
+      b.setAttribute("aria-pressed", String(b.dataset.format === state.format)));
+    const f = fmt();
+    $("#qualityField").hidden = !f.lossy;
+    $("#qualityVal").textContent = state.quality + "%";
+    if (qualityRange.value !== String(state.quality)) qualityRange.value = String(state.quality);
+    $("#btnDownload2").textContent = "⬇ " + f.label;
+    $("#btnDownload").textContent = "⬇ Download " + f.label;
+    $("#btnDownload").title = "Download as " + f.label;
+    $("#btnDownload2").title = "Download as " + f.label;
+    const derived = (state.fileName || "").trim()
+      ? outName(f.ext)
+      : `${imgName}-beautified.${f.ext}`;
+    fileNameEl.placeholder = `${imgName}-beautified`;
+    $("#fileNameHint").textContent = state.fileName.trim()
+      ? "Saves as " + derived
+      : "Leave empty to use the source name — saves as " + derived;
+  }
+  fileNameEl.addEventListener("input", () => { state.fileName = fileNameEl.value; syncExportUI(); persist(); });
+  qualityRange.addEventListener("input", () => {
+    state.quality = parseInt(qualityRange.value, 10) || 92;
+    $("#qualityVal").textContent = state.quality + "%";
+    syncExportUI(); persist();
+  });
+
+  /* sticky-preview mode: only worth doing once an image exists on a stacked (narrow) layout.
+     A short viewport (landscape phone) keeps the side-by-side layout, so no pinning there. */
+  const mainEl = document.querySelector("main");
+  const narrowMq = window.matchMedia("(max-width:1080px) and (min-height:480px)");
+  let userUnpinned = false; // remembers a manual "unpin" so we don't fight the user
+  function syncPin() {
+    const usable = narrowMq.matches && !!img;
+    const on = usable && !userUnpinned;
+    mainEl.classList.toggle("pinning", on);
+    document.body.classList.toggle("pinning", on);
+    if (on) {
+      // Measure the real header height so the pinned layout fits every viewport instead of
+      // relying on a hardcoded number that breaks on notched / short / desktop-width phones.
+      const hdr = document.querySelector("header");
+      const top = hdr ? Math.round(hdr.getBoundingClientRect().bottom + window.scrollY) : 168;
+      document.documentElement.style.setProperty("--pin-top", top + "px");
+    }
+    const btn = $("#btnUnpin");
+    if (btn) {
+      btn.hidden = !usable;
+      btn.textContent = on ? "📌 Preview pinned — tap to unpin" : "📌 Pin preview";
+      btn.setAttribute("aria-pressed", String(on));
+    }
+  }
+  if (narrowMq.addEventListener) narrowMq.addEventListener("change", syncPin);
+  else if (narrowMq.addListener) narrowMq.addListener(syncPin);
+  // Rotating a phone or a reflowing header changes its height, so re-measure on resize.
+  let pinResizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(pinResizeTimer);
+    pinResizeTimer = setTimeout(syncPin, 120);
+  });
+  $("#btnUnpin").addEventListener("click", () => {
+    userUnpinned = !userUnpinned;
+    syncPin();
+    // A sticky element that is currently off-screen jumps oddly — nudge it back into view when pinning.
+    if (!userUnpinned) requestAnimationFrame(() => {
+      const st = document.querySelector(".stage");
+      if (st) window.scrollTo({ top: st.getBoundingClientRect().top + window.scrollY - 8, behavior: "smooth" });
+    });
+  });
+
+  /* save indicator */
+  const saveDot = $("#saveDot"), saveLabel = $("#saveLabel");
+  let unauthTimer = null;
+  function markDirty() {
+    saveDot.className = "saveDot saving";
+    if (unauthTimer) { clearTimeout(unauthTimer); unauthTimer = null; }
+    setSaveNote("Saving…");
+  }
+  function setSaveNote(txt) { saveLabel.textContent = txt; }
+  function showSaved() { saveDot.className = "saveDot saved"; }
+  // persist() reports back here once the write actually succeeds (or fails).
+  onPersisted = ok => {
+    if (ok) {
+      showSaved();
+      saveLabel.textContent = saveLabel.textContent.indexOf("link") === 0
+        ? "Settings loaded from link · saved here"
+        : "Settings saved in this browser";
+    } else {
+      saveDot.className = "saveDot";
+      saveLabel.textContent = "Can’t save here — use the settings link to keep this look";
+    }
+  };
+
+  /* settings link — carries the whole setup to another device */
+  async function shareSettings() {
+    const url = settingsLink();
+    try { history.replaceState(null, "", url); } catch (_) { location.hash = url.split("#")[1]; }
+    try {
+      await navigator.clipboard.writeText(url);
+      notify("Settings link copied ✓", "Open it on your phone or another browser — the same look and export options load there.", "ok");
+    } catch (_) {
+      notify("Settings link ready", "It’s in the address bar — copy it and open it on another device.", "warn");
+    }
+  }
+  $("#btnSettingsLink").addEventListener("click", shareSettings);
+  $("#btnSettingsLink2").addEventListener("click", shareSettings);
+
+  // quick platform presets
+  $$("[data-quick]").forEach(b => b.addEventListener("click", () => {
+    const q = b.dataset.quick;
+    if (q === "x")  { state.ratio = "16:9"; state.inset = 7;  state.radius = 2.4; state.shadow = 11; state.frame = "browser"; }
+    if (q === "li") { state.ratio = "1:1";  state.inset = 10; state.radius = 3;   state.shadow = 9;  state.frame = "browser"; }
+    if (q === "ph") { state.ratio = "4:3";  state.inset = 9;  state.radius = 2;   state.shadow = 12; state.frame = "browser"; }
+    $$("[data-k]").forEach(el => {
+      const k = el.dataset.k;
+      if (el.type === "checkbox") el.checked = !!state[k]; else el.value = state[k];
+    });
+    syncSegs(); syncOutputs(); scheduleRender();
+    notify(q === "x" ? "X / Twitter preset" : q === "li" ? "LinkedIn preset" : "Product Hunt preset", "Ratio, padding and shadow tuned. Keep tweaking freely.", "ok");
+  }));
+
+  /* drag & drop + file picker */
+  ["dragenter", "dragover"].forEach(ev =>
+    window.addEventListener(ev, e => { e.preventDefault(); stageInner.classList.add("drag"); })
+  );
+  ["dragleave", "drop"].forEach(ev =>
+    window.addEventListener(ev, e => { e.preventDefault(); stageInner.classList.remove("drag"); })
+  );
+  window.addEventListener("drop", e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+  });
+  stageInner.addEventListener("click", e => { if (!img && e.target === stageInner) fileInput.click(); });
+  fileInput.addEventListener("change", () => { loadFile(fileInput.files[0]); fileInput.value = ""; });
+  $("#btnReplace").addEventListener("click", () => fileInput.click());
+  window.addEventListener("paste", handlePaste);
+
+  /* actions */
+  $("#btnDownload").addEventListener("click", download);
+  $("#btnDownload2").addEventListener("click", download);
+  $("#btnCopy").addEventListener("click", copyPNG);
+  $("#btnCopy2").addEventListener("click", copyPNG);
+  $("#btnReset").addEventListener("click", () => {
+    state = { ...DEFAULTS };
+    presetIndex = 0;
+    // Drop the shared settings payload too, otherwise a reload would restore it from the URL.
+    try { if (/[#&]s=/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); } catch (_) {}
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    fileNameEl.value = "";
+    $$("[data-k]").forEach(el => {
+      const k = el.dataset.k;
+      if (el.type === "checkbox") el.checked = !!state[k]; else el.value = state[k];
+    });
+    syncSegs(); syncOutputs(); scheduleRender();
+    showSaved();
+    notify("Style reset", "Back to the default look. Your saved settings were cleared too.", "ok");
+  });
+  $("#btnShuffle").addEventListener("click", () => {
+    const i = Math.floor(Math.random() * PRESETS.length);
+    const p = PRESETS[i];
+    presetIndex = i;
+    state.bgType = "gradient";
+    state.c1 = p.c[0]; state.c2 = p.c[1];
+    if (p.c[2]) { state.c3 = p.c[2]; state.useC = true; } else { state.useC = false; }
+    state.angle = Math.floor(Math.random() * 360);
+    const frames = ["browser", "dark", "phone", "border", "none"];
+    state.frame = frames[Math.floor(Math.random() * frames.length)];
+    state.inset = 5 + Math.random() * 10;
+    state.radius = 1 + Math.random() * 3.5;
+    $$("[data-k]").forEach(el => {
+      const k = el.dataset.k;
+      if (el.type === "checkbox") el.checked = !!state[k]; else el.value = state[k];
+    });
+    syncSegs(); syncOutputs(); scheduleRender();
+    notify("Shuffled 🎲", `${p.n} backdrop · ${state.frame} frame.`, "ok");
+  });
+
+  window.addEventListener("keydown", e => {
+    if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); download(); }
+    if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "d") download();
+    if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "s") $("#btnShuffle").click();
+  });
+
+  /* init */
+  fileNameEl.value = state.fileName;
+  syncSegs(); syncOutputs();
+  syncPin();
+  if (!img) updateDims(null);
+  if (SAVED.from === "link") {
+    showSaved();
+    setSaveNote("Settings loaded from link · saved here");
+    notify("Settings loaded ✓", "This look came from a shared link. It saves to this browser from now on.", "ok");
+    persist(); // adopt the shared setup into this browser's storage
+  } else if (SAVED.from === "store") {
+    showSaved();
+    setSaveNote("Settings restored in this browser");
+  } else {
+    setSaveNote("Settings save automatically");
+  }
+})();
+</script>
+</body>
+</html>
