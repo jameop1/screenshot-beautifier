@@ -12,4 +12,4 @@ Transform raw screenshots into presentation-ready visuals with mockup frames, co
 
 ## Getting Started
 
-Open `index.html` in any modern web browser and drag-and-drop or paste an image.
+Open `index.html` in any modern web browser and drag-and-drop or paste an image or use it on https://jameop1.github.io/screenshot-beautifier/
